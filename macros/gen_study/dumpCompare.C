@@ -284,7 +284,7 @@ void dumpCompareSeperated(TDirectory *tdir1, TDirectory *tdir2, Bool_t normalize
     c->Print((pathDir=="" ? "" : pathDir + "/") + funNameFile(nameHist, iPage), optionPrint);
   };
   std::function<void (TCanvas *, UInt_t)> funEndPrint = [](TCanvas *c, UInt_t nPage){};
-  dumpCompare(tdir1, tdir2, normalize, endfix1, endfix1, funPrint, funEndPrint, indexOrder);
+  dumpCompare(tdir1, tdir2, normalize, endfix1, endfix2, funPrint, funEndPrint, indexOrder);
 }
 
 void dumpCompareSeperated(TString pathFileIn1, TString pathFileIn2, Bool_t normalize=true, TString endfix1="", TString endfix2="", TString pathDir="", std::function<TString (TString, UInt_t)> funNameFile=nullptr, TString optionPrint="svg", Int_t indexOrder=1) {
