@@ -15,6 +15,7 @@
 #include <TString.h>
 #include <TStyle.h>
 #include <TSystem.h>
+#include <TROOT.h>
 
 #include <algorithm>
 #include <functional>
@@ -71,7 +72,7 @@ void chi2NbinsCompare(const TH1 *h1, const TH1 *h2, double &chi2, int &nbins,
 }
 
 void drawHistsCompared(TH1 *h1, TH1 *h2, const TString endfix1,
-                       const TString endfix2, Bool_t normalize = true) {
+                       const TString endfix2, Bool_t normalize = true, Option_t *optionDraw = "hist") {
   Int_t nEntries1 = h1->GetEntries();
   Int_t nEntries2 = h2->GetEntries();
   TLegend *leg = new TLegend(0.3333, 0.7027, 0.8333, 0.9023);
@@ -109,11 +110,17 @@ void drawHistsCompared(TH1 *h1, TH1 *h2, const TString endfix1,
     chi2NbinsCompare(h1, h2, chi2, nbins, 1, h1->GetNbinsX());
   }
 
-  h1->Draw("hist");
-  h2->Draw("histsame");
+  Bool_t isAllSame = false;
+  {
+    TString tstrOptionDraw = optionDraw;
+    isAllSame = tstrOptionDraw.Contains("same") || tstrOptionDraw.Contains("SAME") || tstrOptionDraw.Contains("Same");
+  }
+  h1->Draw(optionDraw);
+  h2->Draw(isAllSame ? optionDraw : Form("%s%s", "same", optionDraw));
 
   leg->Clear();
   leg->SetHeader("");
+  leg->SetTextSize(0.75);
   if (nEntries1 && nEntries2) {
     leg->AddEntry((TObject *)0, Form("#chi^{2}/NDF=%.1f/%d", chi2, nbins), "");
     leg->AddEntry((TObject *)0,
@@ -379,8 +386,11 @@ void dumpCompareSeperated(
 
 template <typename CHist>
 void drawHistsMultiple(std::vector<Bool_t> vIsHist, CHist collectionHists, std::vector<TString> vNameLeg,
-                       TString header, Bool_t normalize = true,
-                       Bool_t logy = false) {
+                       TString header, TString title, TString xTitle, Bool_t normalize = true,
+                       Bool_t logy = false, Option_t *optionDraw = "hist") {
+      if (!gPad) {
+        gROOT->MakeDefCanvas();
+      }
       TLegend *leg = new TLegend(0.52, 0.5, 0.90, 0.9);
       //  TLegend* leg = new TLegend(0.45,0.435,0.83,0.857);
       //  TLegend* leg = new TLegend(0.35,0.435,0.83,0.857);
@@ -392,53 +402,74 @@ void drawHistsMultiple(std::vector<Bool_t> vIsHist, CHist collectionHists, std::
 
   Double_t max = 0;
   {
-    typename std::vector<Bool_t>::iterator iterIsHist = vIsHist.begin();
+    typename std::vector<Bool_t>::const_iterator iterIsHist = vIsHist.cbegin();
     Bool_t isIteratingFirstElement = true;
     UInt_t iTDir = 0;
     for (TH1 *hist : collectionHists) {
-      if (!*iterIsHist) {
-        continue;
-      }
-      if (normalize) {
-        hist->SetYTitle("Normalized Distributions");
-      }
-      hist->SetTitleOffset(1.4, "Y");
-      hist->GetYaxis()->SetDecimals();
-      hist->GetYaxis()->SetNdivisions(5);
-      hist->GetXaxis()->SetNdivisions(5);
-      hist->SetLineColor(1 + iTDir);
-      hist->SetLineWidth(3);
-      hist->SetMarkerColor(1 + iTDir);
-
-      gStyle->SetOptStat(0);
-      hist->Sumw2();
-      if (normalize) {
-        hist->Scale(1.0 / hist->Integral());
-      }
-      Double_t maxCurrent =
-          hist->GetBinError(hist->GetMaximumBin()) + hist->GetMaximum();
-      if (isIteratingFirstElement) {
-        max = maxCurrent;
-        isIteratingFirstElement = false;
-      } else {
-        if (max < maxCurrent) {
-          max = maxCurrent;
+      if (*iterIsHist) {
+        // Info("drawHistMultiple", "Overlapping %s (%p) to canvas", vNameLeg[iTDir].Data(), hist);
+        if (normalize) {
+          hist->SetYTitle("Normalized Distributions");
         }
+        hist->SetXTitle(xTitle);
+        hist->SetTitleOffset(1.4, "Y");
+        hist->SetTitle(title);
+        hist->GetYaxis()->SetDecimals();
+        hist->GetYaxis()->SetNdivisions(5);
+        Color_t lineColor = static_cast<Color_t>(iTDir)
+            + (iTDir >= gPad->GetFillColor())
+            + (iTDir >= 10 - 1 && gPad->GetFillColor() == 0)
+            + (iTDir >= 0 && gPad->GetFillColor() == 10);
+        hist->SetLineColor(lineColor);
+        hist->SetLineWidth(3);
+        hist->SetMarkerColor(lineColor);
+
+        gStyle->SetOptStat(0);
+        hist->Sumw2();
+        if (normalize) {
+          hist->Scale(1.0 / hist->Integral());
+        }
+        Double_t maxCurrent =
+            hist->GetBinError(hist->GetMaximumBin()) + hist->GetMaximum();
+        if (isIteratingFirstElement) {
+          max = maxCurrent;
+          isIteratingFirstElement = false;
+        } else {
+          if (max < maxCurrent) {
+            max = maxCurrent;
+          }
+        }
+      } else {
+        // Info("drawHistMultiple" ,"Skip a histogram with nameLeg %s", vNameLeg[iTDir].Data());
       }
+
       iTDir++;
+      iterIsHist++;
     }
   }
   {
+    const Bool_t isAllSame = false;
+    {
+      const TString tstrOptionDraw = optionDraw;
+      tstrOptionDraw.Contains("same") || tstrOptionDraw.Contains("SAME") || tstrOptionDraw.Contains("Same");
+    }
     Bool_t isIteratingFirstElement = true;
-    for (TH1 *hist : collectionHists) {
-      hist->SetMaximum(max);
-      if (isIteratingFirstElement) {
-        hist->Draw("hist");
-        isIteratingFirstElement = false;
-      } else {
-        hist->Draw("same");
+    {
+      typename std::vector<Bool_t>::const_iterator iterIsHist = vIsHist.cbegin();
+      for (TH1 *hist : collectionHists) {
+        if (!*(iterIsHist++)) {
+          continue;
+        }
+        hist->SetMaximum(max);
+        if (isIteratingFirstElement) {
+          hist->Draw(optionDraw);
+          isIteratingFirstElement = false;
+        } else {
+          hist->Draw(isAllSame ? optionDraw : Form("%ssame", optionDraw));
+        }
       }
     }
+    gPad->SetLogy(logy);
   }
   leg->Clear();
   leg->SetHeader(header);
@@ -457,7 +488,10 @@ void dumpCompareMultiple(
     TString header, Bool_t normalize, Bool_t logy,
     std::function<void(TCanvas *c, TString nameHist, UInt_t iPage)> funPrint,
     std::function<void(TCanvas *c, UInt_t nPage)> funEndPrint,
-    Int_t nHistExistMin = 0, UInt_t indexOrder = 1) {
+    Int_t nHistExistMin = 0, UInt_t indexOrder = 1,
+    Option_t *optionDraw = "hist",
+    std::function<TString(std::vector<Bool_t> vIsHist, std::vector<TH1*> vHist, std::vector<TString> vNameLeg)> funTitle = nullptr,
+    std::function<TString(std::vector<Bool_t> vIsHist, std::vector<TH1*> vHist, std::vector<TString> vNameLeg)> funXTitle = nullptr) {
   UInt_t nTDir = vTDirIn.size();
   UInt_t nHistExistMinEffective = (nHistExistMin > 0) ? nHistExistMin : nTDir + nHistExistMin;
   std::vector<TString> vNameMain;
@@ -495,9 +529,75 @@ void dumpCompareMultiple(
       }
     }
     if (nHistExist < nHistExistMinEffective) continue;
-    drawHistsMultiple(vIsHist, vHist, vNameLeg, header, normalize, logy);
+    if (funTitle == nullptr) {
+      funTitle = [indexChooseLeaves](std::vector<Bool_t> vIsHist, std::vector<TH1*> vHist, std::vector<TString> vNameLeg)->TString{
+        for (UInt_t i = indexChooseLeaves; i < vHist.size(); i++) {
+          if (vIsHist[i]) {
+            return vHist[i]->GetTitle();
+          }
+        }
+        for (UInt_t i = 0; i < indexChooseLeaves; i++) {
+          if (vIsHist[i]) {
+            return vHist[i]->GetTitle();
+          }
+        }
+        return "";
+      };
+    }
+    if (funXTitle == nullptr) {
+      funXTitle = [indexChooseLeaves](std::vector<Bool_t> vIsHist, std::vector<TH1*> vHist, std::vector<TString> vNameLeg)->TString{
+        for (UInt_t i = indexChooseLeaves; i < vHist.size(); i++) {
+          if (vIsHist[i]) {
+            return vHist[i]->GetXaxis()->GetTitle();
+          }
+        }
+        for (UInt_t i = 0; i < indexChooseLeaves; i++) {
+          if (vIsHist[i]) {
+            return vHist[i]->GetXaxis()->GetTitle();
+          }
+        }
+        return "";
+      };
+    }
+    drawHistsMultiple<std::vector<TH1 *>>(vIsHist, vHist, vNameLeg, header, funTitle(vIsHist, vHist, vNameLeg), funXTitle(vIsHist, vHist, vNameLeg), normalize, logy, optionDraw);
     funPrint(c1, nameHist, nPage);
     nPage++;
   }
   funEndPrint(c1, nPage);
+}
+
+void dumpCompareMultipleSeperated(
+    std::vector<TDirectory *> vTDirIn, std::vector<TString> vNameLeg,
+    TString header, Bool_t normalize, Bool_t logy,
+    Int_t nHistExistMin = 0, UInt_t indexOrder = 1, Option_t *optionDraw = "hist",
+    std::function<TString(std::vector<Bool_t> vIsHist, std::vector<TH1*> vHist, std::vector<TString> vNameLeg)> funTitle = nullptr,
+    std::function<TString(std::vector<Bool_t> vIsHist, std::vector<TH1*> vHist, std::vector<TString> vNameLeg)> funXTitle = nullptr,
+    TString pathDir = "",
+    std::function<TString(TString nameHist, UInt_t iPage)>
+        funNameFile = nullptr,
+    TString optionPrint = "svg") {
+  if (pathDir == "") {
+    pathDir = "figs";
+  }
+  if (funNameFile == nullptr) {
+    TString suffixFromOption = optionPrint;
+    if (suffixFromOption.EndsWith("+")) {
+      suffixFromOption.Resize(suffixFromOption.Length() - 1);
+    }
+    funNameFile = [suffixFromOption](TString nameHist,
+                                     UInt_t iPage) -> TString {
+      return nameHist + "." + suffixFromOption;
+    };
+  }
+  if (pathDir.Length() >= 2 && pathDir.EndsWith("/")) {
+    pathDir.Resize(pathDir.Length() - 1);
+  }
+  gSystem->mkdir(pathDir);
+  auto funPrint = [&pathDir, &funNameFile, &optionPrint](TCanvas *c, TString nameHist, UInt_t iPage)->void{
+    c->Print(
+            (pathDir == "" ? "" : pathDir + "/") + funNameFile(nameHist, iPage),
+            optionPrint);
+  };
+  auto funEndPrint = [](TCanvas *c, UInt_t nPage)->void{};
+  dumpCompareMultiple(vTDirIn, vNameLeg, header, normalize, logy, funPrint, funEndPrint, nHistExistMin, indexOrder, optionDraw, nullptr, nullptr);
 }
