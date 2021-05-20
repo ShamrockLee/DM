@@ -73,6 +73,9 @@ void chi2NbinsCompare(const TH1 *h1, const TH1 *h2, double &chi2, int &nbins,
 
 void drawHistsCompared(TH1 *h1, TH1 *h2, const TString endfix1,
                        const TString endfix2, Bool_t normalize = true, Option_t *optionDraw = "hist") {
+  if (!gPad) {
+    gROOT->MakeDefCanvas();
+  }
   Int_t nEntries1 = h1->GetEntries();
   Int_t nEntries2 = h2->GetEntries();
   TLegend *leg = new TLegend(0.3333, 0.7027, 0.8333, 0.9023);
@@ -99,13 +102,26 @@ void drawHistsCompared(TH1 *h1, TH1 *h2, const TString endfix1,
     if (nEntries2) h2->Scale(1.0 / h2->Integral());
   }
 
+  constexpr const Double_t ratioMargin = 1.1;
+
   Double_t chi2 = 0.;
   Int_t nbins = 0;
   if (nEntries1 && nEntries2) {
-    Float_t max = h1->GetMaximum() > h2->GetMaximum() ? h1->GetMaximum()
-                                                      : h2->GetMaximum();
-    h1->SetMaximum(1.1 * max);
-    h2->SetMaximum(1.1 * max);
+    const Double_t marginTop = TMath::Max(h1->GetMaximum(), h2->GetMaximum());
+    const Double_t marginLeft = TMath::Min(h1->GetBinLowEdge(1), h2->GetBinLowEdge(1));
+    const Double_t marginRight = TMath::Max(
+        h1->GetBinLowEdge(h1->GetNbinsX()) + h1->GetBinWidth(h1->GetNbinsX()),
+        h2->GetBinLowEdge(h2->GetNbinsX()) + h2->GetBinWidth(h2->GetNbinsX()));
+    for (TH1 *const hist: {h1, h2}) {
+      hist->SetMaximum(ratioMargin * marginTop);
+      if (hist->GetMinimum() > 0) {
+        hist->SetMinimum(0);
+      }
+    }
+
+    gPad->SetTopMargin(ratioMargin * marginTop);
+    gPad->SetLeftMargin(ratioMargin * marginLeft);
+    gPad->SetRightMargin(ratioMargin * marginRight);
 
     chi2NbinsCompare(h1, h2, chi2, nbins, 1, h1->GetNbinsX());
   }
@@ -117,6 +133,8 @@ void drawHistsCompared(TH1 *h1, TH1 *h2, const TString endfix1,
   }
   h1->Draw(optionDraw);
   h2->Draw(isAllSame ? optionDraw : Form("%s%s", "same", optionDraw));
+
+  
 
   leg->Clear();
   leg->SetHeader("");
@@ -400,7 +418,10 @@ void drawHistsMultiple(std::vector<Bool_t> vIsHist, CHist collectionHists, std::
       leg->SetBorderSize(0);
       gStyle->SetOptStat(0);
 
-  Double_t max = 0;
+  Double_t marginTop = 0.;
+  Double_t marginLeft = 0.;
+  Double_t marginRight = 0.;
+  Double_t ratioMarginTop = 1.1;
   {
     typename std::vector<Bool_t>::const_iterator iterIsHist = vIsHist.cbegin();
     Bool_t isIteratingFirstElement = true;
@@ -429,15 +450,15 @@ void drawHistsMultiple(std::vector<Bool_t> vIsHist, CHist collectionHists, std::
         if (normalize) {
           hist->Scale(1.0 / hist->Integral());
         }
-        Double_t maxCurrent =
-            hist->GetBinError(hist->GetMaximumBin()) + hist->GetMaximum();
-        if (isIteratingFirstElement) {
-          max = maxCurrent;
-          isIteratingFirstElement = false;
-        } else {
-          if (max < maxCurrent) {
-            max = maxCurrent;
-          }
+
+        marginTop = TMath::Max(marginTop,
+            hist->GetBinError(hist->GetMaximumBin()) + hist->GetMaximum());
+        marginLeft = TMath::Min(marginLeft, hist->GetBinLowEdge(1));
+        marginRight = TMath::Max(marginRight,
+            hist->GetBinLowEdge(hist->GetNbinsX()) + hist->GetBinWidth(hist->GetNbinsX()));
+
+        if (hist->GetMinimum() > 0) {
+          hist->SetMinimum(0);
         }
       } else {
         // Info("drawHistMultiple" ,"Skip a histogram with nameLeg %s", vNameLeg[iTDir].Data());
@@ -453,6 +474,11 @@ void drawHistsMultiple(std::vector<Bool_t> vIsHist, CHist collectionHists, std::
       const TString tstrOptionDraw = optionDraw;
       tstrOptionDraw.Contains("same") || tstrOptionDraw.Contains("SAME") || tstrOptionDraw.Contains("Same");
     }
+    if (!isAllSame) {
+      gPad->SetTopMargin(ratioMarginTop * marginTop);
+      gPad->SetLeftMargin(ratioMarginTop * marginLeft);
+      gPad->SetRightMargin(ratioMarginTop * marginRight);
+    }
     Bool_t isIteratingFirstElement = true;
     {
       typename std::vector<Bool_t>::const_iterator iterIsHist = vIsHist.cbegin();
@@ -460,7 +486,8 @@ void drawHistsMultiple(std::vector<Bool_t> vIsHist, CHist collectionHists, std::
         if (!*(iterIsHist++)) {
           continue;
         }
-        hist->SetMaximum(max);
+        hist->SetMaximum(marginTop);
+        gPad->SetTopMargin(marginTop * ratioMarginTop);
         if (isIteratingFirstElement) {
           hist->Draw(optionDraw);
           isIteratingFirstElement = false;
